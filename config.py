@@ -24,21 +24,21 @@ from typing import Optional
 # TELEGRAM API CREDENTIALS
 # Get these from https://my.telegram.org/apps
 # =============================================================================
-API_ID: int = int(os.environ.get("API_ID", 0))
-API_HASH: str = os.environ.get("API_HASH", "")
+API_ID: int = int(os.environ.get("33544357", 0))
+API_HASH: str = os.environ.get("15d6b65c6006e8c869534c047e305566", "")
 
 # =============================================================================
 # BOT TOKEN
 # Get this from @BotFather on Telegram
 # =============================================================================
-BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN: str = os.environ.get("8328109785:AAEY5Xl0cAPkWJiDSPcpLtSkoNCUpwpPKLM", "")
 
 # =============================================================================
 # LOG CHANNEL
 # Create a private channel, add bot as admin, get channel ID
 # The ID usually starts with -100
 # =============================================================================
-LOG_CHANNEL: int = int(os.environ.get("LOG_CHANNEL", 0))
+LOG_CHANNEL: int = int(os.environ.get("-1003474155119", 0))
 
 # =============================================================================
 # SERVER CONFIGURATION
