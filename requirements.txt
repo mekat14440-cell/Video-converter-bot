@@ -13,7 +13,7 @@ aiohttp>=3.9.1
 
 # Uvloop - Fast event loop (Linux/Mac only, optional on Windows)
 # Updated to >= to fix build errors on newer Python versions
-uvloop>=0.19.0; sys_platform != 'win32'
+# uvloop>=0.19.0; sys_platform != 'win32'  ← COMMENT OUT THIS LINE!
 
 # Additional utilities
 aiofiles>=23.2.1
