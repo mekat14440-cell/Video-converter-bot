@@ -1,5 +1,5 @@
 """
-Final Working Bot.py - No Validation Error
+Final Working Bot.py - No Uvloop, No Event Loop Errors
 """
 
 import asyncio
@@ -92,11 +92,5 @@ async def main():
         logger.info("Goodbye!")
 
 if __name__ == "__main__":
-    try:
-        import uvloop
-        uvloop.install()
-        logger.info("Using uvloop for better performance")
-    except ImportError:
-        logger.info("Using default event loop")
-    
-    asyncio.get_event_loop().run_until_complete(main())
+    logger.info("Using default event loop (no uvloop to avoid errors)")
+    asyncio.run(main())  # This fixes the event loop issue!
