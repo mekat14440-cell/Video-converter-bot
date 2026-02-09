@@ -1,19 +1,17 @@
-# =============================================================================
-# Telegram Stream Bot Dependencies
-# =============================================================================
-
 # Pyrogram - Fast Telegram MTProto API Framework
 pyrogram>=2.0.106
 
-# TgCrypto - Cryptography library for Pyrogram (much faster)
+# TgCrypto - Cryptography library for Pyrogram (must have for speed)
 tgcrypto>=1.2.5
 
 # Aiohttp - Async HTTP Server
 aiohttp>=3.9.1
 
-# Uvloop - Fast event loop (Linux/Mac only, optional on Windows)
-# Updated to >= to fix build errors on newer Python versions
-uvloop>=0.19.0; sys_platform != 'win32'
-
-# Additional utilities
+# Aiofiles - Async file operations
 aiofiles>=23.2.1
+
+# Uvloop - Fast event loop (Linux/Mac only, Render uses Linux)
+uvloop>=0.19.0
+
+# FFmpeg Python (Not using directly to avoid CPU load, but good to have)
+ffmpeg-python>=0.2.0
