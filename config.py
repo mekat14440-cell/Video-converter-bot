@@ -33,7 +33,7 @@ PORT: int = int(os.environ.get("PORT", 8080))
 # Your Render app domain (without https://)
 # Example: "my-stream-bot.onrender.com"
 # আপনি চাইলে এখানে আপনার অ্যাপের নাম সরাসরি বসাতে পারেন, যেমন: "my-app.onrender.com"
-FQDN: str = os.environ.get("FQDN", "localhost")
+FQDN: str = os.environ.get("FQDN", "video-converter-bot-en42.onrender.com")
 
 # Use HTTPS protocol (set to True for production on Render)
 USE_HTTPS: bool = os.environ.get("USE_HTTPS", "True").lower() == "true"
