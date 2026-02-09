@@ -1,63 +1,81 @@
 """
-Configuration file - Fixed for Render (No Button Error)
+Configuration file for the Telegram Streaming Bot.
 """
 
 import os
 from typing import Optional
 
 # =============================================================================
-# TELEGRAM CREDENTIALS (Your Data)
+# TELEGRAM API CREDENTIALS
 # =============================================================================
+# আমি এখানে os.environ.get সরিয়ে সরাসরি আপনার ID বসিয়ে দিয়েছি
 API_ID: int = 33544357
+
+# এখানে আপনার HASH স্ট্রিং হিসেবে দেওয়া হলো
 API_HASH: str = "15d6b65c6006e8c869534c047e305566"
+
+# =============================================================================
+# BOT TOKEN
+# =============================================================================
 BOT_TOKEN: str = "8328109785:AAEY5Xl0cAPkWJiDSPcpLtSkoNCUpwpPKLM"
+
+# =============================================================================
+# LOG CHANNEL
+# =============================================================================
 LOG_CHANNEL: int = -1003474155119
 
 # =============================================================================
-# SERVER CONFIG (Critical Fixes)
+# SERVER CONFIGURATION
 # =============================================================================
+# Port for the web server (Render provides PORT automatically)
 PORT: int = int(os.environ.get("PORT", 8080))
 
-# Set your Render app domain here (e.g., mystreambot.onrender.com)
+# Your Render app domain (without https://)
+# Example: "my-stream-bot.onrender.com"
+# আপনি চাইলে এখানে আপনার অ্যাপের নাম সরাসরি বসাতে পারেন, যেমন: "my-app.onrender.com"
 FQDN: str = os.environ.get("FQDN", "localhost")
 
-# FREE TIER FIX: Use HTTP instead of HTTPS to avoid BUTTON_URL_INVALID error
-USE_HTTPS: bool = os.environ.get("USE_HTTPS", "False").lower() == "true"
+# Use HTTPS protocol (set to True for production on Render)
+USE_HTTPS: bool = os.environ.get("USE_HTTPS", "True").lower() == "true"
 
 # =============================================================================
-# STREAMING CONFIG
+# STREAMING CONFIGURATION
 # =============================================================================
 CHUNK_SIZE: int = 1024 * 1024  # 1 MB
 MAX_CONCURRENT_STREAMS: int = 50
 
 # =============================================================================
-# VALIDATION (Fixed)
+# VALIDATION
 # =============================================================================
 def validate_config() -> bool:
-    """Validate all required settings"""
+    """Validate that all required configuration is set."""
     errors = []
     
-    if API_ID == 0: errors.append("API_ID not set")
-    if not API_HASH: errors.append("API_HASH not set")
-    if not BOT_TOKEN: errors.append("BOT_TOKEN not set")
-    if LOG_CHANNEL == 0: errors.append("LOG_CHANNEL not set")
-    if FQDN == "localhost": errors.append("FQDN not set (Set in Render Environment!)")
+    if API_ID == 0:
+        errors.append("API_ID is not set")
+    if not API_HASH:
+        errors.append("API_HASH is not set")
+    if not BOT_TOKEN:
+        errors.append("BOT_TOKEN is not set")
+    if LOG_CHANNEL == 0:
+        errors.append("LOG_CHANNEL is not set")
     
     if errors:
         print("Configuration Errors:")
-        for error in errors: print(f"  - {error}")
+        for error in errors:
+            print(f"  - {error}")
         return False
     
     return True
 
 
 def get_base_url() -> str:
-    """Get base URL for streaming links"""
-    protocol = "http" if not USE_HTTPS else "https"
+    """Get the base URL for streaming links."""
+    protocol = "https" if USE_HTTPS else "http"
     return f"{protocol}://{FQDN}"
 
 
-# Debug output
+# Print config status on import (useful for debugging)
 if __name__ == "__main__":
     print("Configuration Status:")
     print(f"  API_ID: {API_ID}")
