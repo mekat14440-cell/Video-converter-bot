@@ -1,10 +1,8 @@
-import math
+import time
 import logging
-import mimetypes
 from aiohttp import web
 from pyrogram.types import Message
 from pyrogram import Client
-from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid
 
 routes = web.RouteTableDef()
 
@@ -15,65 +13,53 @@ async def root_route_handler(request):
 @routes.get("/watch/{message_id}", allow_head=True)
 async def stream_handler(request):
     try:
+        # মেসেজ আইডি ইন্টিজার হতে হবে
         message_id = int(request.match_info['message_id'])
-        return await media_streamer(request, message_id)
     except ValueError:
-        return web.Response(status=400, text="Invalid Message ID")
+        return web.Response(status=400, text="Invalid Message ID (Must be a number)")
 
-async def media_streamer(request, message_id: int):
-    client: Client = request.app["bot_client"]
+    # বট ক্লায়েন্ট এবং চ্যানেল আইডি চেক করা
+    client = request.app.get("bot_client")
+    if not client:
+        return web.Response(status=500, text="Error: Bot Client Not Initialized in App")
+    
     log_channel = client.upstream_log_chat
+    if not log_channel:
+        return web.Response(status=500, text="Error: LOG_CHANNEL ID is missing in Config")
 
-    # 1. ফাইল খোঁজা শুরু
+    # সরাসরি এরর দেখার জন্য আমরা এখানে Try-Catch ব্যবহার করছি
     try:
-        msg: Message = await client.get_messages(chat_id=log_channel, message_ids=message_id)
-    except PeerIdInvalid:
-        return web.Response(status=500, text=f"Error: Bot cannot find Channel ID ({log_channel}). Make sure ID starts with -100")
-    except ChannelInvalid:
-        return web.Response(status=500, text="Error: Channel Invalid or Bot is not Admin.")
+        msg = await client.get_messages(chat_id=log_channel, message_ids=message_id)
+        
+        # যদি মেসেজ এম্পটি হয় (মানে ডিলেট হয়ে গেছে বা নেই)
+        if not msg or msg.empty:
+            return web.Response(status=404, text=f"Error: Message ID {message_id} not found in Channel {log_channel}. (File deleted?)")
+            
+        # ভিডিও বা ফাইল আছে কিনা চেক
+        media = msg.video or msg.document
+        if not media:
+             return web.Response(status=404, text=f"Error: Message ID {message_id} exists but has NO VIDEO file.")
+
+        # সব ঠিক থাকলে ভিডিও স্ট্রিম করা
+        file_id = media.file_id
+        file_size = media.file_size
+        file_name = media.file_name or "video.mp4"
+        
+        # ExoPlayer এর জন্য MP4 হেডার
+        headers = {
+            'Content-Type': 'video/mp4',
+            'Content-Length': str(file_size),
+            'Accept-Ranges': 'bytes',
+            'Content-Disposition': f'inline; filename="{file_name}"'
+        }
+        
+        return web.Response(
+            status=200,
+            headers=headers,
+            body=client.stream_media(file_id)
+        )
+
     except Exception as e:
-        return web.Response(status=500, text=f"Unknown Error: {str(e)}")
-
-    # 2. মেসেজ চেক করা
-    if not msg or msg.empty:
-        return web.Response(status=404, text="Error: Message not found (File deleted?)")
-
-    # 3. ভিডিও বা ডকুমেন্ট আছে কিনা দেখা
-    tag = msg.video or msg.document
-    if not tag:
-        return web.Response(status=404, text="Error: No video found in this message")
-
-    file_id = tag.file_id
-    file_size = tag.file_size
-    file_name = tag.file_name or "video.mp4"
-    
-    # 4. রেঞ্জ রিকোয়েস্ট হ্যান্ডেল করা (ExoPlayer এর জন্য জরুরি)
-    range_header = request.headers.get('Range', None)
-    from_bytes, until_bytes = 0, file_size - 1
-    
-    if range_header:
-        try:
-            from_bytes, until_bytes = range_header.replace('bytes=', '').split('-')
-            from_bytes = int(from_bytes)
-            until_bytes = int(until_bytes) if until_bytes else file_size - 1
-        except ValueError:
-            pass
-
-    length = until_bytes - from_bytes + 1
-    
-    # 5. রেসপন্স হেডার (MP4 হিসেবে পাঠানো)
-    headers = {
-        'Content-Type': 'video/mp4',
-        'Content-Range': f'bytes {from_bytes}-{until_bytes}/{file_size}',
-        'Content-Length': str(length),
-        'Accept-Ranges': 'bytes',
-        'Content-Disposition': f'inline; filename="{file_name}"',
-        'Access-Control-Allow-Origin': '*'
-    }
-
-    return web.Response(
-        status=206 if range_header else 200,
-        headers=headers,
-        body=client.stream_media(file_id, offset=from_bytes, length=length)
-    )
-    
+        # 🔥 এই লাইনটিই আপনাকে আসল সমস্যা বলে দেবে
+        error_text = f"CRITICAL ERROR:\n{str(e)}\n\nCheck:\n1. Is Bot Admin?\n2. Is Channel ID Correct?\n3. Did you restart the bot?"
+        return web.Response(status=500, text=error_text)
