@@ -4,17 +4,13 @@ import mimetypes
 from aiohttp import web
 from pyrogram.types import Message
 from pyrogram import Client
+from pyrogram.errors import ChannelInvalid, ChannelPrivate, PeerIdInvalid
 
-# নোট: আমরা এখানে 'bot' ইম্পোর্ট করছি না, যাতে Circular Import না হয়।
 routes = web.RouteTableDef()
 
 @routes.get("/", allow_head=True)
 async def root_route_handler(request):
     return web.json_response({"status": "running", "maintainer": "StreamFlix"})
-
-@routes.get("/health", allow_head=True)
-async def health_handler(request):
-    return web.Response(status=200, text="OK")
 
 @routes.get("/watch/{message_id}", allow_head=True)
 async def stream_handler(request):
@@ -25,50 +21,36 @@ async def stream_handler(request):
         return web.Response(status=400, text="Invalid Message ID")
 
 async def media_streamer(request, message_id: int):
-    # 🔥 ফিক্স: Bot ক্লাস ইম্পোর্ট না করে, অ্যাপ থেকে ক্লায়েন্ট নিচ্ছি
     client: Client = request.app["bot_client"]
     log_channel = client.upstream_log_chat
-    
-    range_header = request.headers.get('Range', None)
-    
+
+    # 1. ফাইল খোঁজা শুরু
     try:
-        msg: Message = await client.get_messages(
-            chat_id=log_channel, 
-            message_ids=message_id
-        )
+        msg: Message = await client.get_messages(chat_id=log_channel, message_ids=message_id)
+    except PeerIdInvalid:
+        return web.Response(status=500, text=f"Error: Bot cannot find Channel ID ({log_channel}). Make sure ID starts with -100")
+    except ChannelInvalid:
+        return web.Response(status=500, text="Error: Channel Invalid or Bot is not Admin.")
     except Exception as e:
-        logging.error(f"Error fetching message {message_id}: {e}")
-        return web.Response(status=404, text="File Not Found")
+        return web.Response(status=500, text=f"Unknown Error: {str(e)}")
 
-    if not msg:
-        return web.Response(status=404, text="Message Not Found")
-        
-    # ফাইল ডিটেকশন
-    file_id = None
-    file_size = 0
-    file_name = "video.mp4"
-    mime_type = "video/mp4"
+    # 2. মেসেজ চেক করা
+    if not msg or msg.empty:
+        return web.Response(status=404, text="Error: Message not found (File deleted?)")
 
-    if msg.video:
-        file_id = msg.video.file_id
-        file_size = msg.video.file_size
-        file_name = msg.video.file_name or "video.mp4"
-        mime_type = msg.video.mime_type or "video/mp4"
-    elif msg.document:
-        file_id = msg.document.file_id
-        file_size = msg.document.file_size
-        file_name = msg.document.file_name or "video.mp4"
-        mime_type = msg.document.mime_type or "video/mp4"
-    else:
-        return web.Response(status=404, text="No Media Found")
+    # 3. ভিডিও বা ডকুমেন্ট আছে কিনা দেখা
+    tag = msg.video or msg.document
+    if not tag:
+        return web.Response(status=404, text="Error: No video found in this message")
 
-    # 🔥 MAGIC CODE: MKV বা অন্য ফরম্যাটকে জোর করে MP4 বলা
-    # এটি Android VideoView কে বোকা বানাবে এবং ভিডিও চালাবে
-    if "x-matroska" in mime_type or "mkv" in file_name.lower():
-        mime_type = "video/mp4"
-
-    # রেঞ্জ ক্যালকুলেশন (Seeking এর জন্য)
+    file_id = tag.file_id
+    file_size = tag.file_size
+    file_name = tag.file_name or "video.mp4"
+    
+    # 4. রেঞ্জ রিকোয়েস্ট হ্যান্ডেল করা (ExoPlayer এর জন্য জরুরি)
+    range_header = request.headers.get('Range', None)
     from_bytes, until_bytes = 0, file_size - 1
+    
     if range_header:
         try:
             from_bytes, until_bytes = range_header.replace('bytes=', '').split('-')
@@ -77,26 +59,18 @@ async def media_streamer(request, message_id: int):
         except ValueError:
             pass
 
-    if from_bytes >= file_size:
-        return web.Response(
-            status=416, 
-            headers={'Content-Range': f'bytes */{file_size}'}
-        )
-
-    chunk_size = 1024 * 1024
-    until_bytes = min(until_bytes, file_size - 1)
     length = until_bytes - from_bytes + 1
     
+    # 5. রেসপন্স হেডার (MP4 হিসেবে পাঠানো)
     headers = {
-        'Content-Type': mime_type,
+        'Content-Type': 'video/mp4',
         'Content-Range': f'bytes {from_bytes}-{until_bytes}/{file_size}',
         'Content-Length': str(length),
         'Accept-Ranges': 'bytes',
         'Content-Disposition': f'inline; filename="{file_name}"',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': '*'
     }
 
-    # স্ট্রিম শুরু
     return web.Response(
         status=206 if range_header else 200,
         headers=headers,
