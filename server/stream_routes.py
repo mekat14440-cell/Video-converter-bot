@@ -1,88 +1,105 @@
+import math
 import logging
-import logging.config
-import sys
-from pyrogram import Client, idle
+import mimetypes
 from aiohttp import web
-import config
-from server.stream_routes import routes  # আমরা setup_routes এর বদলে routes ইম্পোর্ট করছি
+from pyrogram.types import Message
+from pyrogram import Client
 
-# =============================================================================
-# LOGGING SETUP
-# =============================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+# নোট: আমরা এখানে 'bot' ইম্পোর্ট করছি না, যাতে Circular Import না হয়।
+routes = web.RouteTableDef()
 
-# =============================================================================
-# MAIN BOT CLASS
-# =============================================================================
+@routes.get("/", allow_head=True)
+async def root_route_handler(request):
+    return web.json_response({"status": "running", "maintainer": "StreamFlix"})
 
-class Bot(Client):
-    def __init__(self):
-        super().__init__(
-            name="StreamBot",
-            api_id=config.API_ID,
-            api_hash=config.API_HASH,
-            bot_token=config.BOT_TOKEN,
-            plugins=dict(root="plugins"),
-            workers=50,
-            sleep_threshold=10
+@routes.get("/health", allow_head=True)
+async def health_handler(request):
+    return web.Response(status=200, text="OK")
+
+@routes.get("/watch/{message_id}", allow_head=True)
+async def stream_handler(request):
+    try:
+        message_id = int(request.match_info['message_id'])
+        return await media_streamer(request, message_id)
+    except ValueError:
+        return web.Response(status=400, text="Invalid Message ID")
+
+async def media_streamer(request, message_id: int):
+    # 🔥 ফিক্স: Bot ক্লাস ইম্পোর্ট না করে, অ্যাপ থেকে ক্লায়েন্ট নিচ্ছি
+    client: Client = request.app["bot_client"]
+    log_channel = client.upstream_log_chat
+    
+    range_header = request.headers.get('Range', None)
+    
+    try:
+        msg: Message = await client.get_messages(
+            chat_id=log_channel, 
+            message_ids=message_id
+        )
+    except Exception as e:
+        logging.error(f"Error fetching message {message_id}: {e}")
+        return web.Response(status=404, text="File Not Found")
+
+    if not msg:
+        return web.Response(status=404, text="Message Not Found")
+        
+    # ফাইল ডিটেকশন
+    file_id = None
+    file_size = 0
+    file_name = "video.mp4"
+    mime_type = "video/mp4"
+
+    if msg.video:
+        file_id = msg.video.file_id
+        file_size = msg.video.file_size
+        file_name = msg.video.file_name or "video.mp4"
+        mime_type = msg.video.mime_type or "video/mp4"
+    elif msg.document:
+        file_id = msg.document.file_id
+        file_size = msg.document.file_size
+        file_name = msg.document.file_name or "video.mp4"
+        mime_type = msg.document.mime_type or "video/mp4"
+    else:
+        return web.Response(status=404, text="No Media Found")
+
+    # 🔥 MAGIC CODE: MKV বা অন্য ফরম্যাটকে জোর করে MP4 বলা
+    # এটি Android VideoView কে বোকা বানাবে এবং ভিডিও চালাবে
+    if "x-matroska" in mime_type or "mkv" in file_name.lower():
+        mime_type = "video/mp4"
+
+    # রেঞ্জ ক্যালকুলেশন (Seeking এর জন্য)
+    from_bytes, until_bytes = 0, file_size - 1
+    if range_header:
+        try:
+            from_bytes, until_bytes = range_header.replace('bytes=', '').split('-')
+            from_bytes = int(from_bytes)
+            until_bytes = int(until_bytes) if until_bytes else file_size - 1
+        except ValueError:
+            pass
+
+    if from_bytes >= file_size:
+        return web.Response(
+            status=416, 
+            headers={'Content-Range': f'bytes */{file_size}'}
         )
 
-    async def start(self):
-        # ১. টেলিগ্রাম বট স্টার্ট করা
-        await super().start()
-        
-        # নিজের তথ্য নেওয়া
-        me = await self.get_me()
-        self.username = me.username
-        
-        # Log Channel সেট করা (Stream Routes এর জন্য এটি জরুরি)
-        self.upstream_log_chat = config.LOG_CHANNEL
-        
-        logger.info(f"Bot Started as @{me.username}")
+    chunk_size = 1024 * 1024
+    until_bytes = min(until_bytes, file_size - 1)
+    length = until_bytes - from_bytes + 1
+    
+    headers = {
+        'Content-Type': mime_type,
+        'Content-Range': f'bytes {from_bytes}-{until_bytes}/{file_size}',
+        'Content-Length': str(length),
+        'Accept-Ranges': 'bytes',
+        'Content-Disposition': f'inline; filename="{file_name}"',
+        'Access-Control-Allow-Origin': '*',
+    }
 
-        # ২. ওয়েব সার্ভার (Aiohttp) স্টার্ট করা
-        app = web.Application()
-        app.add_routes(routes)  # 🔥 এই লাইনটিই আসল ফিক্স
-        
-        runner = web.AppRunner(app)
-        await runner.setup()
-        
-        # Render পোর্ট হ্যান্ডেলিং (ডিফল্ট 8080)
-        bind_address = "0.0.0.0"
-        PORT = config.PORT 
-        
-        site = web.TCPSite(runner, bind_address, PORT)
-        await site.start()
-        
-        logger.info(f"Web Server Running on Port {PORT}")
-        
-        # বট যাতে বন্ধ না হয়
-        await idle()
-
-    async def stop(self, *args):
-        await super().stop()
-        logger.info("Bot Stopped")
-
-# =============================================================================
-# ENTRY POINT
-# =============================================================================
-
-if __name__ == "__main__":
-    # uvloop ইন্সটল করা (Linux/Render এর স্পিড বাড়ানোর জন্য)
-    try:
-        import uvloop
-        uvloop.install()
-        logger.info("Using uvloop for better performance")
-    except ImportError:
-        pass
-
-    # বট রান করা
-    Bot().run()
+    # স্ট্রিম শুরু
+    return web.Response(
+        status=206 if range_header else 200,
+        headers=headers,
+        body=client.stream_media(file_id, offset=from_bytes, length=length)
+    )
     
